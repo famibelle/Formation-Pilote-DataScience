@@ -1,0 +1,68 @@
+---
+title: "Model Selection"
+author: "Famibelle Médhi"
+date: "Wednesday, April 08, 2015"
+output: html_document
+---
+
+Nous allons travailler sur le dataset **birthwt** qui correspond au factor de risque associé à un faible poids de naissance.
+
+```{r}
+lbw <- MASS::birthwt
+glimpse(lbw)
+```
+
+Procédons à la factorisation des variables factorisables.
+```{r}
+lbw <- mutate(lbw, low = factor(low, levels = c(0,1), 
+                                labels = c("normal", "low")))
+lbw <- mutate(lbw, race = factor(race, levels = c(1,2,3), 
+                                 labels = c("white", "black", "other")))
+lbw <- mutate(lbw, smoke = factor(smoke, levels = c(0,1), labels = c("no","yes")))
+lbw <- mutate(lbw, ht = factor(ht, levels = c(0,1), labels = c("no","yes")))
+lbw <- mutate(lbw, ui = factor(ui, levels = c(0,1), labels = c("no","yes")))
+lbw <- select(lbw, -low)
+glimpse(lbw)
+summary(lbw)
+```
+
+Inspectons chacune des variables 
+```{r}
+for (name in names(lbw)) {
+  print(qplot(data = lbw, get(name), xlab = name))
+}
+```
+
+Inspections les relations possibles entre chacune des variables et la variable `bwt` (poids de naissance)
+
+```{r}
+for (name in names(lbw)[-9]) {
+  if (class(lbw[[name]])=="factor") {
+  print(ggplot(data = lbw, aes_string(x = name, y = "bwt")) + 
+          geom_boxplot() +
+          geom_point(position = position_jitter(width = .1)))
+            
+  }
+  else
+  {
+    print(ggplot(data = lbw, aes_string(x = name, y = "bwt")) + 
+            geom_point(position = position_jitter(width = .1)) +
+          geom_smooth())  
+  }
+}
+```
+
+Faisons la regression totale du poids de naissance par rapport à toutes les variables
+
+```{r}
+regLbw <- lm(bwt ~ ., data = lbw)
+summary(regLbw)
+autoplot(regLbw)
+```
+
+Faisons un regression triviale
+```{r}
+regLbwTriv <- lm(bwt ~ 1, data = lbw)
+summary(regLbwTriv)
+```
+

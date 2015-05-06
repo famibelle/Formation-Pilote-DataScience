@@ -1,0 +1,172 @@
+---
+title: "Dimension Reduction"
+author: "Famibelle Médhi"
+date: "Wednesday, May 06, 2015"
+output: html_document
+---
+
+
+```{r Knitr_Global_Options, include=FALSE}
+library(knitr)
+opts_chunk$set(warning = FALSE, message = FALSE, cache =TRUE, autodep = TRUE, tidy=FALSE)
+knit_hooks$set(webgl = hook_webgl)
+library(FactoMineR)
+library(spe)
+library(rgl)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(scales)
+```
+
+```{r}
+data(decathlon)
+summary(decathlon)
+colnames(decathlon)
+```
+
+```{r}
+glimpse(decathlon)
+```
+
+# Analyse deux à deux
+
+```{r}
+decathlon2 <- decathlon
+names(decathlon2) <- paste("P", names(decathlon), sep = "") #Fix for the column names starting by a number...
+ggplot(data= decathlon2, aes(x = P100m, y = PLong.jump, color = PPoints)) + geom_point(size = 5) +
+  geom_text(label = row.names(decathlon), vjust = -1.25)
+```
+```{r}
+guides(color = FALSE)
+```
+Analyse si corrélation des données
+```{r}
+cor(decathlon[,1:10])
+```
+
+Analyse de corrélation des données
+```{r}
+ggpairs(decathlon2[,1:10])
+```
+
+Visualisation du dataset en 3D
+```{r}
+plot3d(as.matrix(decathlon[,1:3]), type = "s", size = 5, 
+       col = cscale(decathlon$Points,seq_gradient_pal("#132B43", high = "#56B1F7")))
+```
+
+```{r}
+plot3d(as.matrix(decathlon[,1:3]), type = "s", size = 5, 
+       col = cscale(decathlon$Points,seq_gradient_pal("#132B43", high = "#56B1F7")))
+plot3d(ellipse3d(cov(decathlon[,1:3]), centre = colMeans(decathlon[,1:3])), col="grey", alpha=0.25, add = TRUE)
+par3d(FOV=1)
+```
+
+```{r}
+decathlonR <- decathlon
+decathlonR[1:10] <- scale(decathlonR[1:10])
+decathlonR2 <- decathlonR
+names(decathlonR2) <- paste("P", names(decathlon), sep = "") #Fix for the column names starting by a number...
+ggplot(data= decathlonR2, aes(x = P100m, y = PLong.jump, color = PPoints)) + geom_point(size = 5) +
+  geom_text(label = row.names(decathlon), vjust = -1.25) +
+  guides(color = FALSE)
+```
+
+```{r}
+cor(decathlonR[,1:10])
+```
+
+```{r}
+ggpairs(decathlonR2[,1:10])
+```
+
+```{r}
+ggpairs(decathlonR2, columns = c(1,2,6,10))
+```
+
+```{r Plot3D, webgl=TRUE}
+plot3d(as.matrix(decathlonR[,1:3]), 
+       type = "s", 
+       size = 5, 
+       col = cscale(decathlon$Points,seq_gradient_pal("#132B43", high = "#56B1F7")))
+
+plot3d(
+    ellipse3d(
+        cov(decathlonR[,1:3]), 
+        centre = colMeans(decathlonR[,1:3])
+        ), 
+    col="grey", alpha=0.25, add = TRUE)
+
+par3d(FOV=1)
+
+plot3d(
+    planes3d(
+        cov(decathlonR[,1:2])[1], 
+        centre = colMeans(decathlonR[,1:2])),     
+    col="grey", alpha=0.25, add = TRUE)
+)
+```
+
+# Principal Component Analysis
+```{r}
+PCADecathlonR <- PCA(decathlonR[1:10], graph = FALSE)
+str(PCADecathlonR)
+```
+Décomposition manuelle
+```{r}
+CDecathlonR <- cov(as.matrix(decathlonR[1:10]))
+EDecathlonR <- eigen(CDecathlonR)
+UDecathlonR <- EDecathlonR$vectors
+LambdaDecathlonR <- EDecathlonR$values
+
+PCADecathlonR2 <- as.matrix(decathlonR[1:10]) %*% UDecathlonR
+str(PCADecathlonR2)
+```
+
+
+```{r}
+ggplot(data= data.frame(X1 = PCADecathlonR$ind$coord[,1], X2 = PCADecathlonR$ind$coord[,2], Col = decathlon$Points),
+       aes(x = X1, y = X2, color = Col)) + geom_point(size = 5) +
+  geom_text(label = row.names(decathlon), vjust = -1.25) +
+  scale_x_continuous(expand = c(.15,0)) + scale_y_continuous(expand = c(.1,0)) +
+  guides(color = FALSE)
+```
+
+```{r}
+t(PCADecathlonR$svd$U) %*% as.matrix(decathlonR[,1:10]) / 40
+```
+
+```{r}
+PCADecathlonR$var$coord
+```
+
+
+```{r}
+circle <- function(center = c(0, 0), npoints = 100) {
+    r = 1
+    tt = seq(0, 2 * pi, length = npoints)
+    xx = center[1] + r * cos(tt)
+    yy = center[1] + r * sin(tt)
+    return(data.frame(X1 = xx, X2 = yy))
+}
+corcir = circle(c(0, 0), npoints = 100)
+
+ggplot(data.frame(X1 = PCADecathlonR$var$coord[,1], X2 = PCADecathlonR$var$coord[,2]))+ 
+  geom_path(data = corcir, aes(x = X1, y = X2), color = "gray") + 
+  geom_segment(aes(xend = X1, yend = X2), x = 0 , y = 0, arrow = grid::arrow()) + 
+  geom_text(aes(x = X1, y = X2), label = names(decathlonR[1:10]), vjust = -1.25)
+
+```
+
+```{r}
+PCADecathlonR <- PCA(decathlonR[1:10])
+```
+
+
+```{r}
+ggplot(data = data.frame(dim = factor(1:length(PCADecathlonR$eig$`cumulative percentage of variance`)), 
+                         cum = PCADecathlonR$eig$`cumulative percentage of variance`), aes(x = dim, y = cum)) +
+  geom_bar(stat = 'identity')
+```
+

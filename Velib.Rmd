@@ -1,0 +1,196 @@
+---
+title: "Vélib"
+author: "Famibelle Médhi"
+date: "Tuesday, April 07, 2015"
+output: html_document
+---
+
+```{r echo=FALSE, warning=FALSE}
+library("dplyr")
+library(httr)
+library(googleVis)
+library(ggplot2)
+library(ggmap)
+DecauxKey <- "da879af595184f071c181408b837b7da636f924f"
+```
+
+Recupere les données contractuelles depuis l'API JCDecaux https://developer.jcdecaux.com/#/opendata/vls?page=dynamic
+
+```{r}
+ContractsGET <- httr::GET(
+    sprintf(
+        "https://api.jcdecaux.com/vls/v1/contracts?apiKey=%s",
+        DecauxKey)
+    )
+```
+
+
+Parse les données récupérées par l'API et force les données en UTF8 
+```{r}
+Contracts <- jsonlite::fromJSON(
+    txt = httr::content(ContractsGET, "text", encoding  = "utf8"), 
+    flatten = TRUE)
+```
+
+
+Filtre les données par dénomination commerciale
+```{r}
+filter(Contracts, commercial_name == "Velib")
+
+DecauxContractName <- filter(Contracts, commercial_name == "Velib")[["name"]]
+
+```
+
+
+On récupère toutes les stations Vélib sous contract avec Paris.
+```{r}
+Stations <- jsonlite::fromJSON(sprintf("https://api.jcdecaux.com/vls/v1/stations?contract=%s&apiKey=%s", 
+                                       DecauxContractName,
+                                       DecauxKey), 
+                               flatten = TRUE)
+```
+
+
+On affiche les stations dans un tableau
+```{r}
+StationsTable <- gvisTable(Stations)
+plot(StationsTable)
+```
+
+
+```{r} 
+StationsMap <- Stations
+StationsMap$locationvar <- paste(StationsMap$position.lat,StationsMap$position.lng, sep=":")
+
+StationsMap$name <- 
+    paste(
+    StationsMap$name, "<p>",
+    "attaches disponible(s)", StationsMap$bike_stands, "<p>",
+    "Vélo(s) disponible(s)", StationsMap$available_bike_stands, sep=" "
+    )
+
+StationsMap <- gvisMap(StationsMap, "locationvar" , "name", 
+                     options=list(showTip=TRUE, 
+                                  showLine=TRUE, 
+                                  enableScrollWheel=TRUE,
+                                  mapType='terrain', 
+                                  useMapTypeControl=TRUE))
+plot(StationsMap)
+```
+
+Analysons les données du nombre de points d'attache opérationnels (variables `bike_stands`)
+```{r}
+qplot(data = Stations, bike_stands)
+```
+
+De la même façon, analysons le nombre de points d'attache disponibles pour ranger un vélo (variable `available_bike_stands`)
+```{r}
+qplot(data = Stations, available_bike_stands)
+```
+
+Pour finir analysons le nombre de vélos disponibles et opérationnels (variable `available_bikes`)
+```{r}
+qplot(data = Stations, available_bikes)
+```
+
+En toute logique nous devrions avoir une relation entre le 
+1. `bike_stands` le nombre de points d'attache opérationnels
+
+1. `available_bike_stands` le nombre de points d'attache disponibles pour y ranger un vélo
+
+1. `available_bikes` le nombre de vélos disponibles et opérationnels
+
+à savoir `bike_stands` = `available_bike_stands` + `available_bikes`
+
+Vérifions cette hypothèse
+```{r}
+qplot(data = Stations, bike_stands, available_bikes)
+qplot(data = Stations, bike_stands, available_bike_stands)
+
+```
+
+```{r}
+qplot(data = Stations, bike_stands, available_bikes + available_bike_stands)
+```
+
+En lieu et place d'une ligne droite correspondant à `bike_stands` = `available_bike_stands` + `available_bikes`, nous observons des écarts.
+
+Analysons ces écarts, en fonction de l'état de la station Vélib, à savoir station ouverte ou fermée
+```{r}
+qplot(data = Stations, bike_stands, available_bikes + available_bike_stands, color = status, geom = "jitter")
+```
+
+Analysons les ratio nombre de vélos disponibles par rapport au nombre de points d'attaches par station.
+```{r}
+ggplot(
+    data = Stations, 
+    aes(x = available_bikes/bike_stands)
+    ) +
+  geom_histogram()
+```
+Nous voyons que de nombreuses stations sont vides ou peu remplies.
+
+Les Stations Bonus sont les stations permttant de bénéficier d'un crédit de 15mn.  
+```{r}
+```{r}
+ggplot(
+    data = Stations, 
+    aes(x = available_bikes/bike_stands)
+    ) + 
+    geom_density() + 
+    facet_grid(~ bonus)  
+
+```
+Le profil d'occupation des stations V+ est inférieur à celui des stations ordinaires. Près de 12,5% des stations V+ est vide.
+
+
+```{r}
+location.lat.max <- max(Stations[["position.lat"]])
+location.lat.min <- min(Stations[["position.lat"]])
+location.lat.width <- location.lat.max-location.lat.min
+location.lng.max <- max(Stations[["position.lng"]])
+location.lng.min <- min(Stations[["position.lng"]])
+location.lng.width <- location.lng.max-location.lng.min
+location.box <- c(location.lat.min-.05*location.lat.width,
+                  location.lat.max+.05*location.lat.width,
+                  location.lng.min-.05*location.lng.width,
+                  location.lng.max+.05*location.lng.width)
+names(location.box) <- c("bottom", "top", "left", "right")
+map.Decaux <- ggmap(map.Decaux.raw, extent = "device")
+map.Decaux
+
+map.Decaux.raw <- get_map(location.box, source = "google", 
+                  maptype = "roadmap")
+ggmap(map.Decaux.raw)
+
+```
+
+Affichons sur une carte la disponibilité des vélos.
+```{r}
+map.avail <- map.Decaux + geom_point(data = Stations, 
+                       aes(x = position.lng, y = position.lat, 
+                           col = available_bikes/bike_stands, 
+                           size = bike_stands),
+                       alpha = .85) + 
+  scale_size(range = c(.5,3), name = "Bike stands", trans = "sqrt") +
+  scale_color_gradient(limits = c(0,1), name = "Bike availability") +
+  ggtitle("Bike availability") +
+  theme(plot.title = element_text(size = 20))
+map.avail
+```
+
+Analysons la position des stations V+
+```{r}
+map.bonus <- map.Decaux + geom_point(data = Stations, 
+                       aes(x = position.lng, y = position.lat, 
+                           col = factor(bonus,
+                                        levels=c("TRUE","FALSE")), 
+                           size = bike_stands),
+                       alpha = .85) + 
+  scale_size(range = c(.5,3), name = "Bike stands", trans = "sqrt") +
+  scale_color_discrete(name = "Bonus") +
+  ggtitle("Station bonus") +
+  theme(plot.title = element_text(size = 20))
+map.bonus
+```
+

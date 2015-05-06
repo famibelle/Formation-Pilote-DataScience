@@ -1,0 +1,53 @@
+---
+title: "MultiDimensional Scaling"
+author: "Famibelle Médhi"
+date: "Wednesday, May 06, 2015"
+output: html_document
+---
+
+
+```{r Knitr_Global_Options, include=FALSE}
+library(knitr)
+opts_chunk$set(warning = FALSE, message = FALSE, cache =TRUE, autodep = TRUE, tidy=FALSE)
+knit_hooks$set(webgl = hook_webgl)
+library(FactoMineR)
+library(spe)
+library(rgl)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(scales)
+```
+
+Get data from http://www.cmap.polytechnique.fr/~lepennec/enseignement/DSSP_Orange/temperature.csv
+
+
+```{r}
+temperature <- read.csv("temperature.csv", row.names = 1)
+temperature[1:12] <- scale(temperature[1:12])
+
+DistTemperature <- dist(temperature[1:12])
+TemperatureMDS <- cmdscale(DistTemperature)
+
+ggplot(data = data.frame(X1 = TemperatureMDS[,1], X2 = TemperatureMDS[,2]), aes(x = X1, y = X2)) +
+  geom_point() + geom_text(label = row.names(temperature), vjust = -1.25)
+```
+On échange les axes
+
+```{r}
+ggplot(data = data.frame(X1 = TemperatureMDS[,1], X2 = TemperatureMDS[,2]), aes(x = -X2, y = X1)) +
+  geom_point() + geom_text(label = row.names(temperature), vjust = -1.25)
+```
+On compare avec l'analyse PCA
+```{r}
+TemperaturePCA <- PCA(temperature[1:12], graph = FALSE)
+ggplot(data = data.frame(X1 = TemperaturePCA$ind$coord[,1], X2 = TemperaturePCA$ind$coord[,2]), aes(x = X1, y = X2)) +
+  geom_point() + geom_text(label = row.names(temperature), vjust = -1.25)
+```
+
+```{r}
+ggplot(data = data.frame(X1 = TemperaturePCA$ind$coord[,1], X2 = TemperaturePCA$ind$coord[,2]), aes(x = X2, y = -X1)) +
+  geom_point() + geom_text(label = row.names(temperature), vjust = -1.25)
+```
+
+

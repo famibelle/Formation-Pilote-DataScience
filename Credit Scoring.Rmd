@@ -1,0 +1,364 @@
+---
+title: "Credit Scoring"
+author: "Famibelle Médhi"
+date: "Monday, April 13, 2015"
+output: html_document
+---
+
+Chargement des librairies et des données.
+```{r}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(caret)
+
+CreditTraining <- read.csv("CreditTraining.csv")
+glimpse(CreditTraining)
+
+```
+
+Nettoyage des données
+```{r}
+Fix_Type <- function(Credit) {
+Credit <- dplyr::mutate(Credit, Id_Customer = factor(Id_Customer))
+Credit <- dplyr::mutate(Credit, Y = factor(Y))
+Credit <- dplyr::mutate(Credit, BirthDate = lubridate::dmy(BirthDate))
+Credit <- dplyr::mutate(Credit, Customer_Open_Date = lubridate::dmy(Customer_Open_Date))
+Credit <- dplyr::mutate(Credit, Net_Annual_Income =
+                   as.numeric(sub(",",".",Net_Annual_Income)))
+Credit <- dplyr::mutate(Credit, Prod_Decision_Date = lubridate::dmy(Prod_Decision_Date))
+dplyr::mutate(Credit, Prod_Closed_Date = lubridate::dmy(Prod_Closed_Date))
+}
+CreditTraining <- Fix_Type(CreditTraining)
+
+summary(CreditTraining)
+```
+
+```{r}
+Fix_Levels <- function(Credit) {
+  Credit <- dplyr::mutate(Credit, Y = factor(Y, levels = c(1,0), 
+                                      labels = c("DEFAULT","NO_DEFAULT")))
+  Credit <- dplyr::mutate(Credit, Customer_Type = factor(Customer_Type, 
+                                                  levels = c("Non Existing Client", "Existing Client"),
+                                                  labels = c("Non_Existing_Client", "Existing_Client")))
+  dplyr::mutate(Credit, Educational_Level = factor(Educational_Level, 
+                                            levels = c("Secondary or Less",
+                                                       "Diploma",
+                                                       "University",
+                                                       "Master/PhD"),
+                                            labels = c("Secondary_or_Less",
+                                                       "Diploma",
+                                                       "University",
+                                                       "Master_PhD")))
+}
+CreditTraining <- Fix_Levels(CreditTraining)
+```
+
+
+Première analyse
+
+```{r}
+nameCreditTraining <- names(CreditTraining)
+for (varname in nameCreditTraining[-1]) {
+  print(summary(dplyr::select(CreditTraining, one_of(varname))))
+  NbNa <-sum(is.na(CreditTraining[[varname]])); 
+  if (NbNa >0) {
+    writeLines(strwrap(paste("\n",varname,"has",NbNa, "NA")))
+  }
+  print(qplot(data = CreditTraining, get(varname), xlab = varname))
+}
+```
+
+
+Nouveau nettoyage des donnees
+```{r}
+ComputeMedOrMod <- function(x) {
+  if (is.factor(x)) {
+    y=levels(x)[which.max(table(x))]
+  }
+  else
+  {
+    y=median(x,na.rm=TRUE)
+  }
+  return(y)
+}
+
+NAvalue=list()
+for (name in names(CreditTraining)) {
+  NAvalue[[name]]=ComputeMedOrMod(CreditTraining[[name]])
+}
+NAvalue[["Prod_Closed_Date"]] <- NULL
+
+Fix_NA <- function(Credit, NAvalue. = NAvalue) {
+  for (name  in names(NAvalue.)) {
+    Credit[[name]][is.na(Credit[[name]])]=unlist(NAvalue.[[name]])
+  }
+  Credit
+}
+CreditTraining <- Fix_NA(CreditTraining)
+```
+
+
+
+```{r}
+Fix_Prod_Closed_Date <- function(Credit) {
+  Credit <- dplyr::mutate(Credit, Prod_Closed_Date_NA = is.na(Prod_Closed_Date))
+  dplyr::mutate(Credit, Prod_Closed_Date = ifelse(Prod_Closed_Date_NA,
+                                           max(Prod_Closed_Date, na.rm = TRUE),
+                                           Prod_Closed_Date))
+}
+CreditTraining <- Fix_Prod_Closed_Date(CreditTraining)
+```
+
+Exploration des dépendances des variables
+```{r}
+library("scales")
+nameCreditTraining <- names(CreditTraining)
+for (varname in nameCreditTraining[-c(1,2)]) {
+  print(qplot(data = CreditTraining, get(varname), fill = Y, position = "fill", xlab = varname) + scale_y_continuous(label = percent_format()))
+}
+```
+
+On retire la variable Id_Customer
+```{r}
+CreditTraining <- dplyr::select(CreditTraining, -Id_Customer)
+```
+
+
+On utilise la librarie Carret pour l'apprentissage
+
+Apprentissage
+```{r}
+CreditGlm <- train(Y ~ ., data = CreditTraining, method = "glm")
+CreditGlm
+```
+
+Prediction
+```{r}
+PredGlm <- predict(CreditGlm, newdata = CreditTraining)
+head(PredGlm)
+```
+
+```{r}
+ProbGlm <- predict(CreditGlm, newdata = CreditTraining, type = "prob")
+head(ProbGlm)
+```
+
+Même chose cette fois ci avec la **Cross Validation** sur V= 5 folds
+```{r}
+trControlCV <- trainControl(
+    method = "CV",
+    number = 5)
+CreditGlm <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "glm",
+    trControl = trControlCV)
+
+CreditGlm
+```
+
+Prediction sur la base d'une Cross Validation avec V=5
+```{r}
+PredGlm <- predict(CreditGlm, newdata = CreditTraining)
+head(PredGlm)
+```
+
+```{r}
+ProbGlm <- predict(CreditGlm, newdata = CreditTraining, type = "prob")
+head(ProbGlm)
+```
+
+Nous allons maintenant utiliser deux fonctions (`ErrsCaret`, `ErrCaretAccuracy`) pour comparer les différents modèles.
+```{r}
+ErrsCaret <- function(model, name) {
+  Errs <- data.frame(model$resample)
+  dplyr::mutate(Errs, model = name)
+} 
+
+ErrCaretAccuracy <- function(Errs) {
+  Errs <- group_by(Errs, model)
+  cbind(dplyr::summarize(
+      Errs, mAccuracy = mean(Accuracy, na.rm = TRUE),
+      mKappa = mean(Kappa, na.rm = TRUE),
+      sdAccuracy = sd(Accuracy, na.rm = TRUE), 
+      sdKappa = sd(Kappa, na.rm = TRUE)))
+}
+
+ErrsGlm <- ErrsCaret(CreditGlm, "Glm")
+
+ErrsGlm
+```
+
+```{r}
+ErrGlm <- ErrCaretAccuracy(ErrsGlm)
+ErrGlm
+```
+
+
+On affiche la courbe **ROC** et l'aire de la courbe
+```{r}
+library(pROC)
+GlmROC <- roc(CreditTraining[["Y"]], ProbGlm[[1]])
+plot(GlmROC)
+auc(GlmROC)
+```
+
+
+On essaie cette fois ci avec la méthode **GlmNet**
+```{r}
+CreditGlmnet <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "glmnet",
+    trControl = trControlCV
+    )
+
+CreditGlmnet
+```
+
+```{r}
+head(CreditGlmnet)
+ggplot(CreditGlmnet)
+```
+
+
+On affine le calcul en bornant les valeurs de alpha et lambda entre exp^-8 et 1
+```{r}
+CreditGlmnet <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "glmnet",
+    trControl = trControlCV,
+    tuneGrid  =  expand.grid(
+        alpha = exp(seq(-8,0, length.out = 10)), 
+        lambda = 10^(seq(-8,0, length.out = 10))
+        )
+    )
+
+CreditGlmnet
+```
+
+
+```{r}
+ggplot(CreditGlmnet)
+```
+
+Comparons les deux modèles.
+```{r}
+summary(resamples(list(Glm = CreditGlm, Glmnet = CreditGlmnet)))
+```
+
+
+
+```{r}
+Errs <- ErrsCaret(CreditGlm, "Glm")
+Errs <- rbind(Errs, ErrsCaret(CreditGlmnet, "Glmnet"))
+Errs
+```
+
+```{r}
+Err <- ErrCaretAccuracy(Errs)
+Err
+```
+
+```{r}
+trControlCVROC <- trainControl(method = "CV",
+                          number = 5,
+                          classProbs = TRUE,
+                          summaryFunction = twoClassSummary)
+CreditGlmROC <- train(Y ~ ., data = CreditTraining, method = "glm",
+                   trControl = trControlCVROC)
+CreditGlmROC
+```
+
+
+```{r}
+CreditGlmnetROC <- train(Y ~ ., data = CreditTraining, method = "glmnet",
+                   trControl = trControlCVROC,
+                   tuneGrid  =  expand.grid(alpha = exp(seq(-8,0, length.out = 10)), 
+                                          lambda = exp(seq(-8,0, length.out = 10))))
+CreditGlmnetROC
+```
+
+```{r}
+CreditNB <-  train(
+    Y ~ ., 
+    data = CreditTraining, method = "nb",
+    trControl = trControlCV, 
+    tuneGrid = expand.grid(fL = 10, usekernel = c(TRUE, FALSE))
+    )
+Errs <- rbind(Errs, ErrsCaret(CreditNB, "NB"))
+
+CreditKNN <-  train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "knn",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditKNN, "KNN"))
+
+CreditSVM <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "svmLinear",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditSVM, "SVM"))
+
+CreditSVMPoly <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "svmPoly",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditSVMPoly, "SVMPoly"))
+
+CreditSVMRadial <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "svmRadial",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditSVMPoly, "SVMRadial"))
+
+CreditNN <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "mlp",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditNN, "NN"))
+
+CreditBagging <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "treebag",               
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditNN, "Bagging"))
+
+CreditRF <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "rf",
+    trControl = trControlCV
+    )
+Errs <- rbind(Errs, ErrsCaret(CreditNN, "RF"))
+
+CreditRF <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "C5.0",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditNN, "C5.0"))
+
+CreditAda <- train(
+    Y ~ ., 
+    data = CreditTraining, 
+    method = "AdaBag",
+    trControl = trControlCV)
+Errs <- rbind(Errs, ErrsCaret(CreditAda, "Ada"))
+
+Err <- ErrCaretAccuracy(Errs)
+Err
+```
+
+```{r}
+ggplot(data = Err, aes(x = model, y = mAccuracy)) + geom_point(size = 3)
+```
+

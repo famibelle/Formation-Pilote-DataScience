@@ -1,0 +1,282 @@
+---
+title: "Univariate Linear Regression"
+author: "Famibelle Médhi"
+date: "Wednesday, April 08, 2015"
+output: html_document
+---
+
+```{r echo=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(devtools)
+library(reshape2)
+library(gridExtra)
+
+devtools::install_github('sinhrks/ggfortify')
+
+```
+
+Travaillons sur le jeu de données http://www.cmap.polytechnique.fr/~lepennec/enseignement/DSSP_Orange/eucalyptus.txt
+
+
+```{r}
+eucalyptus <- read.table("eucalyptus.txt", header=TRUE, quote="\"")
+glimpse(eucalyptus)
+summary(eucalyptus)
+```
+
+On transforme la variable `bloc` en facteur
+```{r}
+eucalyptus <- mutate(eucalyptus, bloc = factor(bloc))
+glimpse(eucalyptus)
+summary(eucalyptus)
+```
+
+Analysons la relation entre la hauteur et la circonférence
+
+```{r}
+peuc <- ggplot(data = eucalyptus, aes(x = circ, y = ht)) + geom_point()
+peuc
+```
+
+```{r}
+peucadv <- ggplot(data = eucalyptus, aes(x = circ, y = ht)) +
+  geom_point(alpha = .5, position = "jitter", size = 3)
+peucadv
+```
+
+Observons les données en incluant une regression non linéaire 
+
+```{r}
+peuc + geom_smooth()
+```
+
+Observons les données en incluant une regression linéaire 
+```{r}
+peuc + geom_smooth(method = "lm")
+```
+
+```{r}
+reg1 <- lm(ht ~ circ, data = eucalyptus)
+reg1
+summary(reg1)
+```
+
+Faison la prédiction 
+```{r}
+pred1 <- predict(reg1)
+err1 <- mean((eucalyptus[["ht"]]-pred1)^2)
+err1
+```
+
+Affichons la prédiction 
+```{r}
+peuc +
+    geom_point(
+    data = cbind(eucalyptus, pred = predict(reg1)), 
+    aes(x = circ, y = pred), 
+    color = "blue", size = 3
+    )
+
+```
+
+Affichons la prédiction et introduisons une régression linéaire
+```{r}
+peuc +
+    geom_point(
+    data = cbind(eucalyptus, pred = predict(reg1)), 
+    aes(x = circ, y = pred), 
+    color = "blue", size = 3
+    ) +
+ geom_smooth(method = "lm", se = FALSE)
+```
+
+Affichons les résidus, à savoir les écarts entre les valeurs calculées et les valeurs prédites par le modèle.
+```{r}
+pres <- ggplot(data = cbind(eucalyptus, res = residuals(reg1)), aes(x = circ, y = res)) +
+  geom_point()
+pres
+```
+
+Rajoutons une régression non linéaire dans le graphique.
+```{r}
+pres + geom_smooth()
+```
+
+Il apparait une tendance des résidus avec un profil non linéaire, essayons de construire avec comme variable supplémentaire, la circonférence au carré.
+```{r}
+reg2 <- lm(ht ~ circ + I(circ^2), data = eucalyptus)
+reg2
+summary(reg2)
+```
+
+```{r}
+err2 <- mean((eucalyptus[["ht"]]-predict(reg2))^2)
+err2
+```
+
+
+Affichons la nouvelle prédiction 
+
+```{r}
+peuc + geom_point(data = cbind(eucalyptus, pred = predict(reg2)), 
+                  aes(x = circ, y = pred), color = "green", size = 3)
+```
+
+```{r}
+peuc + geom_point(data = cbind(eucalyptus, pred = predict(reg2)), 
+                  aes(x = circ, y = pred), color = "green", size = 3) +
+  geom_smooth(method = "lm", formula = "y ~ x + I(x^2)", se = FALSE)
+```
+
+```{r}
+pres2 <- ggplot(data = cbind(eucalyptus, res = residuals(reg2)), aes(x = circ, y = res)) +
+  geom_point()
+pres2
+```
+
+
+```{r}
+pres2 + geom_smooth()
+```
+
+```{r}
+autoplot(reg1)
+autoplot(reg2)
+
+```
+
+Quel est le meilleur modèle ?
+```{r}
+writeLines(strwrap(paste("Model1:", err1)))
+writeLines(strwrap(paste("Model2:", err2)))
+if (err1 <= err2) {
+  writeLines(strwrap("Best model: Model1"))
+} else {
+  writeLines(strwrap("Best model: Model2"))
+}
+```
+
+De façon à éviter le sur apprentissage, sur un modèle V-Folds de validation croissée pour les erreurs.
+```{r}
+V <- 10
+T <- 2
+Folds <- caret::createMultiFolds(eucalyptus[["ht"]], k = V, times = T)
+
+errCV <- matrix(nrow = 2, ncol = (T*V))
+for (v in 1: (T*V)) {
+  eucatrain <- slice(eucalyptus, Folds[[v]])
+  eucatest <- slice(eucalyptus, -Folds[[v]])
+  
+  regtmp1 <- lm(ht ~ circ, data = eucatrain)
+  predtmp1 <- predict(regtmp1, newdata = eucatest)
+  errCV[1,v] <- mean((eucatest[["ht"]]-predtmp1)^2)
+    
+  regtmp2 <- lm(ht ~ circ + I(circ^2), data = eucatrain)
+  predtmp2 <- predict(regtmp2, newdata = eucatest)
+  errCV[2,v] <- mean((eucatest[["ht"]]-predtmp2)^2)
+}
+
+errCV1 = mean(errCV[1,])
+errCV2 = mean(errCV[2,])
+errCVsd1 = sd(errCV[1,])
+errCVsd2 = sd(errCV[2,])
+
+writeLines(strwrap(paste("Model1:", errCV1)))
+writeLines(strwrap(paste("Model2:", errCV2)))
+
+if (errCV1 <= errCV2) {
+  writeLines(strwrap("Best model: Model1"))
+} else {
+  writeLines(strwrap("Best model: Model2"))
+}
+```
+
+```{r}
+sigmasq1 <- mean(residuals(reg1)^2)
+sigmasq2 <- mean(residuals(reg2)^2)
+errCp1 <- err1 + 2 * sigmasq1 * 2 / nrow(eucalyptus)
+errCp2 <- err2 + 2 * sigmasq2 * 3 / nrow(eucalyptus)
+
+writeLines(strwrap(paste("Model1:", errCp1)))
+writeLines(strwrap(paste("Model2:", errCp2)))
+
+if (errCp1 <= errCp2) {
+  writeLines(strwrap("Best model: Model1"))
+} else {
+  writeLines(strwrap("Best model: Model2"))
+}
+```
+
+Comparons les deux critères
+```{r}
+errs <- rbind(
+    data_frame(
+        method = "1", 
+        err = err1, 
+        errCV = errCV1, 
+        errCVup = errCV1 + 2 * errCVsd1 / sqrt(T*V), errCp = errCp1),
+    data_frame(
+        method = "2", 
+        err = err2, 
+        errCV = errCV2, 
+        errCVup = errCV2 + 2 * errCVsd2 / sqrt(T*V), errCp = errCp2)
+    )
+
+melterrs <- melt(errs)
+
+ggplot(data = melterrs, aes(x = method, y = value, color = variable)) + geom_point(size = 5)
+```
+
+Quel le meilleur degré pour une regression polynomial efficace ?
+
+```{r}
+D <- 9
+errspoly <- data.frame()
+ppolys <- list()
+for ( d in 1:D ) {
+  reg <- lm(ht ~ poly(circ,d), data = eucalyptus)
+  ppolys[[d]] <- ggplot(data =eucalyptus, aes(x = circ, y = ht)) +
+    geom_point() + geom_smooth(method = "lm", 
+                               formula = sprintf("y ~ poly(x,%d)", d))
+  err <- mean((eucalyptus[["ht"]]-predict(reg))^2)
+  sigmasq <- mean(residuals(reg)^2)
+  errCp = err + 2 * sigmasq * (1+d) / nrow(eucalyptus)
+  errCVM = matrix(0, nrow = 1, ncol = T*V)
+  for (v in 1:(T*V)) {
+    eucatrain <- slice(eucalyptus, Folds[[v]])
+    eucatest <- slice(eucalyptus, -Folds[[v]])
+    regtmp <- lm(ht ~ poly(circ, d), data = eucatrain)
+    predtmp <- predict(regtmp, newdata = eucatest)
+    errCVM[v] <- mean((eucatest[["ht"]]-predtmp)^2)
+  }
+  errCV <- mean(errCVM)
+  errCVsd <- sd(errCVM) 
+  errspoly <- rbind(errspoly, data.frame( method = sprintf("Poly_%d",d),
+                                          err = err, errCV = errCV,
+                                          errCVup = errCV + 2 * errCVsd / sqrt(T*V),
+                                          errCp = errCp))
+}
+
+do.call(grid.arrange,c(ppolys, list(ncol = 3)))
+```
+
+```{r}
+ggplot(data = melt(errspoly), aes(x = method, y = value, color = variable)) +
+  geom_point(size = 5)
+```
+
+```{r}
+Find_Best <- function(errs) { 
+  nameserr <- names(errs)[-1]
+  for (nameerr in nameserr) {
+    writeLines(strwrap(paste(nameerr, ": ",
+                             errs[["method"]][which.min(errs[[nameerr]])],
+                             "(",min(errs[[nameerr]], na.rm =TRUE),")")))
+  }
+}
+
+Find_Best(errspoly)
+```
+
+

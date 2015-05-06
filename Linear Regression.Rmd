@@ -1,0 +1,70 @@
+---
+title: "Linear Regression"
+author: "Famibelle Médhi"
+date: "Wednesday, April 08, 2015"
+output: html_document
+---
+
+```{r echo=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+anscombe1 <- transmute(anscombe, example = 1, x = x1, y = y1)
+anscombe2 <- transmute(anscombe, example = 2, x = x2, y = y2)
+anscombe3 <- transmute(anscombe, example = 3, x = x3, y = y3)
+anscombe4 <- transmute(anscombe, example = 4, x = x4, y = y4)
+```
+
+
+Première observervation des jeux de données `anscombe1`, `anscombe2`, `anscombe3`, `anscombe4`
+```{r}
+anscombe1
+anscombe2
+anscombe3
+anscombe4
+```
+
+Faisons un regression linéaires des données 
+```{r}
+reganscombe1 <- lm(y ~ x, data = anscombe1)
+reganscombe2 <- lm(y ~ x, data = anscombe2)
+reganscombe3 <- lm(y ~ x, data = anscombe3)
+reganscombe4 <- lm(y ~ x, data = anscombe4)
+```
+
+Analysons les résultats
+```{r}
+reganscombe1
+reganscombe2
+reganscombe3
+reganscombe4
+
+summary(reganscombe1)
+summary(reganscombe2)
+summary(reganscombe3)
+summary(reganscombe4)
+```
+
+Analysons la somme au carré des résidus pour chaque jeu de données
+```{r}
+err1 <- mean((residuals(reganscombe1)^2))
+err2 <- mean((residuals(reganscombe2)^2))
+err3 <- mean((residuals(reganscombe3)^2))
+err4 <- mean((residuals(reganscombe4)^2))
+```
+
+
+Affichons le jeu de données et leur courbe de régression linéaire. 
+```{r}
+ggplot(data = rbind(anscombe1, anscombe2, anscombe3, anscombe4), aes(x=x,y=y)) +
+    geom_point() + 
+    geom_smooth(method = "lm", fullrange = TRUE) +
+    facet_wrap( ~ example, ncol = 2)
+```
+
+Nous observations que les quatre jeux de données semblent avoir la même regression linaire.
+```{r}
+rbind(reganscombe1$coefficients, reganscombe2$coefficients, reganscombe3$coefficients, reganscombe4$coefficients)
+```
